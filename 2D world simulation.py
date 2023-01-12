@@ -1,30 +1,35 @@
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
+import matplotlib as mpl# type: ignore
+import matplotlib.pyplot as plt # type: ignore
 #import scipy
 import math
 import pygame
-from astropy import constants, units
+from astropy import constants, units # type: ignore
 import copy
 
 YELLOW = (255, 255, 0)
 BLUE = (0, 0, 255)
 RED = (255, 0, 0)
-DEFAULTSCALE = 39 #pixels per AU
+DEFAULTSCALE = 39/constants.au #pixels per AU
 
 pygame.init()
 font = pygame.font.Font(None, 32)
 #L_sun solar luminosity
 #pygame.image.load('bg.jpg') loads image to background
+var: str = "a"
 
 def planetSim():
+	WIDTH, HEIGHT = 1300, 500
+
 	class CelestialBody(object):
 		TIMESTEP =  3600*24 #the game will be sped up by this number (1 day per second)
 		def __init__(self, displayRadius, color, m, actualRadius):
 			self.d = 0*units.m #distance from sun to sun = 0
-			self.scale = DEFAULTSCALE
-			self.x = 0 * units.m #x position; only changes with camera movement and orbits
-			self.y = HEIGHT/2 * constants.au / self.scale # y position
+			self.scale = DEFAULTSCALE # in unitless pixels per au
+			self.actualX = 0 * units.m #x position; only changes with orbits
+			self.actualY = 0 * units.m 
+			self.screenX = 0 #x of the planet on the screen; changes with camera panning and zooming
+			self.screenY = HEIGHT/2
 			self.displayRadius = displayRadius
 			self.actualRadius = actualRadius.to(units.m)
 			self.color = color
@@ -35,31 +40,38 @@ def planetSim():
 			self.radiusToScale = False
 			self.r = displayRadius
 		
+		def auToPixels(self, actualDimension) -> float: #takes the actual position of celestial body and converts it to pixels
+			return (actualDimension * self.scale).value
+
 		def draw(self):
-			x = (self.x * self.scale/constants.au).value
-			y = (self.y * self.scale/constants.au).value
 			if self.radiusToScale:
-				r = (self.actualRadius * self.scale/constants.au).value
+				r = self.auToPixels(self.actualRadius)
 			else:
 				r = self.r
-			pygame.draw.circle(screenPlanets, self.color, (x, y), r)
+			pygame.draw.circle(screenPlanets, self.color, (self.screenX, self.screenY), r)
 
 		def toggleRadius(self): #toggle the radii to scale or to display
 			self.radiusToScale = not self.radiusToScale
 
-		def increaseScale(self):
+		def increaseScale(self, cursorX = 0, cursorY = HEIGHT/2):
 			planetScale = self.scale * 1.1 #1.1 is an arbitrary increase of the scale
-			if planetScale < 20000000:
+			if planetScale * constants.au < 20000000:
 				self.scale = planetScale
+				self.screenX = self.auToPixels(self.actualX)
+				self.screenY = self.auToPixels(self.actualY) + HEIGHT/2
+				
 
-		def decreaseScale(self):
+		def decreaseScale(self, cursorX = 0, cursorY = HEIGHT/2):
 			planetScale = self.scale / 1.1
-			if planetScale > 0.5:
+			if planetScale * constants.au > 0.5:
 				self.scale = planetScale
+				self.screenX = self.auToPixels(self.actualX)
+				self.screenY = self.auToPixels(self.actualY) + HEIGHT/2
+
 
 		def increaseRadius(self):
 			planetR = self.r * 1.1
-			if planetR < HEIGHT/4:
+			if planetR < HEIGHT/4: #this HEIGHT/4 was arbitrarily chosen.
 				self.r = planetR
 
 		def decreaseRadius(self):
@@ -68,26 +80,27 @@ def planetSim():
 				self.r = planetR
 
 		def centralize(self):
-			self.x = self.d.copy()
-			self.y = HEIGHT/2 * constants.au / self.scale
+			self.screenX = self.auToPixels(self.actualX)
+			self.screenY = HEIGHT/2
 
 		def toRight(self):
-			self.x -= 50*constants.au/self.scale
+			self.screenX -= 50
 
 		def toLeft(self):
-			self.x += 50*constants.au/self.scale
+			self.screenX += 50
 		
 		def toUp(self):
-			self.y += 50*constants.au/self.scale
+			self.screenY += 50
 		
 		def toDown(self):
-			self.y -= 50*constants.au/self.scale
+			self.screenY -= 50
 
 	class Planet(CelestialBody):
 		def __init__(self, d, displayRadius, color, m, actualRadius):
 			CelestialBody.__init__(self, displayRadius, color, m, actualRadius)
 			self.d = d.to(units.m) #distance from the sun; doesn't change with camera movement
-			self.x = self.d.copy()
+			self.actualX = self.d.copy()
+			self.screenX = self.auToPixels(self.actualX)
 
 		def calcForceGravity(self, otherCelestialBody):
 			d_x = otherCelestialBody.x - self.x #distance between two bodies in m; negative distances will be squared
@@ -108,7 +121,6 @@ def planetSim():
 
 	run = True
 	clock = pygame.time.Clock() #otherwise, the game runs at the speed of the processor
-	WIDTH, HEIGHT = 1300, 500
 	screenPlanets = pygame.display.set_mode((WIDTH, HEIGHT))
 	pygame.display.set_caption("Planet simulation")
 	sun = CelestialBody(30, YELLOW, constants.M_sun, constants.R_sun)
@@ -125,28 +137,41 @@ def planetSim():
 
 	while run:
 		clock.tick(60)
+		cursor = pygame.mouse.get_pos()
+		cursorX = cursor[0]
+		cursorY = cursor[1]
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				run = False
 			if event.type == pygame.KEYDOWN:
-				'''
-				if event.key == pygame.K_j:
-					centralizeOnPlanet(earth, planets)'''
+		
+				""" if event.key == pygame.K_j:
+					centralizeOnPlanet(earth, planets) """
 				for planet in planets:
 					if event.key == pygame.K_z:
 						planet.toggleRadius()
 					if event.key == pygame.K_c:
 						for planet in planets:
 							planet.centralize()
-
-		
+			
+			if event.type == pygame.MOUSEWHEEL: #pygame.MOUSEBUTTONDOWN
+				#print(event.y)
+				if event.y > 0:
+					for planet in planets:
+						for y in range(event.y):
+							planet.increaseScale(cursorX, cursorY)
+				else:
+					for planet in planets:
+						for y in range(-event.y):
+							planet.decreaseScale(cursorX, cursorY)
+					
 		userInput = pygame.key.get_pressed()
 		for planet in planets:
 			if userInput[pygame.K_KP_PLUS]:
-				planet.increaseScale()
+				planet.increaseScale(cursorX, cursorY)
 			
 			elif userInput[pygame.K_KP_MINUS]:
-				planet.decreaseScale()
+				planet.decreaseScale(cursorX, cursorY)
 			
 			if userInput[pygame.K_RIGHT]:
 				planet.toRight()
