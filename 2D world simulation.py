@@ -1,4 +1,4 @@
-#import numpy
+import numpy as np
 #import matplotlib
 #import scipy
 import math
@@ -14,10 +14,13 @@ RED = (255, 0, 0)
 BLACK = (0, 0, 0)
 DEFAULTSCALE = 39/constants.au #pixels per AU
 COORDINATE = typing.Tuple[int, int]
+m_per_s = units.m / units.s
 PANNING_VELOCITY = 5
 BACKGROUND_COLOR = BLACK
 ZOOM = 1.1 #the increment of the zoom
 TIMESTEP =  3600*24 #the game will be sped up by this number (1 day per second)
+CAMERA_BORDERS = {'left': 200, 'right': 200, 'top': 100, 'bottom': 100}
+
 
 pygame.init()
 font = pygame.font.Font(None, 32)
@@ -26,84 +29,118 @@ font = pygame.font.Font(None, 32)
 
 RGB = typing.Tuple[int, int, int]
 
-def planetSim():
 
-	WIDTH, HEIGHT = 1250, 500
-	CENTER = (WIDTH/2, HEIGHT/2)
+WIDTH, HEIGHT = 1250, 500
+CENTER = (WIDTH/2, HEIGHT/2)
+def create_array(u = None, values = (0,0)):
+	if isinstance(values[0], units.quantity.Quantity):
+		l = [values[0], values[1]]
+	else:
+		if u == None:
+			raise TypeError("Unit needs to be specified if the values don't have it.")
+		l = [values[0] * u, values[1] * u]
 
-	class Planet_group(pygame.sprite.Group):
-		
-		def __init__(self):
-			super().__init__()
-			self.offset = pygame.math.Vector2() #for the camera panning; no arguments means (0,0) coordinates
-			self.scale = DEFAULTSCALE.copy()
-			self.radiusToScale:bool = False #type:ignore
-		
-		auToPixels = lambda self, actualDimension: (actualDimension * self.scale).value
-		#takes the actual position of celestial body and converts it to pixels
+	return np.array(l, units.quantity.Quantity)
 
-		def centralize(self):
-			"""Resets the position of each planet in the group and zoom_scale""" #this is a docstring
-			self.scale = DEFAULTSCALE.copy()
-			self.offset *= 0
+class Planet_group(pygame.sprite.Group):
 	
-		def draw(self, surface): #overrides Group's draw method
-			for planet in self.sprites():
-				if self.radiusToScale:
-					display_radius = self.auToPixels(planet.actualRadius)
-				else:
-					display_radius = planet.displayRadius
-				planet_pos = pygame.Vector2(self.auToPixels(planet.actual_pos[0]), self.auToPixels(planet.actual_pos[1]) + HEIGHT/2) + self.offset
-				planet_rect = pygame.draw.circle(surface, planet.color, planet_pos, display_radius)
-		
-		def toggleRadius(self): #toggle the radii to scale or to display
-			self.radiusToScale = not self.radiusToScale
+	def __init__(self):
+		super().__init__()
+		self.offset = pygame.math.Vector2() #for the camera panning; no arguments means (0,0) coordinates
+		self.scale = DEFAULTSCALE.copy()
+		self.radiusToScale:bool = False #type:ignore
+	
+	auToPixels = lambda self, actualDimension: int((actualDimension * self.scale).value)
+	#takes the actual position of celestial body and converts it to pixels
 
-	class Body(pygame.sprite.Sprite):
+	def centralize(self):
+		"""Resets the position of each planet in the group and zoom_scale""" #this is a docstring
+		self.scale = DEFAULTSCALE.copy()
+		self.offset *= 0
+
+	def draw(self, surface, cursor_pos = (0, 0)): #overrides Group's draw method
+		for planet in self.sprites():
+			if self.radiusToScale:
+				display_radius = self.auToPixels(planet.actualRadius)
+			else:
+				display_radius = planet.displayRadius
+
+			planet_pos = pygame.Vector2(self.auToPixels(planet.position[0]), self.auToPixels(planet.position[1]) + HEIGHT/2) + self.offset #- center
+
+			planet_rect = pygame.draw.circle(surface, planet.color, planet_pos, display_radius)
+	
+	def toggleRadius(self): #toggle the radii to scale or to display
+		self.radiusToScale = not self.radiusToScale
+	
+	"""
+	def increaseRadius(self):
+		planetR = self.r * 1.1
+		if planetR < HEIGHT/4: #this HEIGHT/4 was arbitrarily chosen.
+			self.r = planetR
+			self.radiusToScale = False
+
+	def decreaseRadius(self):
+		planetR = self.r / 1.1
+		if planetR >= 1:
+			self.r = planetR
+			self.radiusToScale = False"""
+
+class Body(pygame.sprite.Sprite):
+	"""Class for any piece of matte"""
+	
+	def __init__(self, *groups, mass = None, position = None, velocity = None): #type: ignore
+		super().__init__(*groups)
+
+		#velocity should be a vector
+		if velocity is None:
+			self.velocity = create_array(m_per_s, (0, 0))
 		
-		def __init__(self, *groups, mass, velocity:units.m / units.s = 0 * units.m / units.s):
-			super().__init__(*groups)
+		elif isinstance(velocity, np.ndarray):
+			self.velocity  = velocity
+
+		else:
+			raise TypeError(f"Velocity needs to be a numpy array with units, got {velocity} instead")
+		
+		if position is None:
+			self.position = create_array(units.m, (0, 0))
+		
+		elif isinstance(position, np.ndarray):
+			self.position  = position
+
+		else:
+			raise TypeError(f"Position needs to be a numpy array with units, got {position} instead.")
+
+		if mass == None:
+			self.mass = 0 * units.kg
+		else:
 			self.mass = mass
 
-	class CelestialBody(Body):
+class CelestialBody(Body):
 
-		def __init__(self, planet_group:Planet_group, displayRadius:int, color:RGB, mass:units.kg, actualRadius:units.m, distance_to_sun = 0 * units.m): #constructor: the init() function
-			super().__init__(planet_group, mass = mass) #no need to pass in self for super()
-			self.scale = DEFAULTSCALE
-			self.displayRadius = displayRadius
-			self.actualRadius = actualRadius.to(units.m)
-			self.color:RGB = color
-			
-			self.distance_to_sun =  distance_to_sun #initial/average distance to the sun
-			self.actual_pos = (distance_to_sun, 0 * units.m)
+	def __init__(self, planet_group:Planet_group, displayRadius:int, color:RGB, mass:units.kg, actualRadius:units.m, distance_to_sun = None): #constructor: the init() function
+		if distance_to_sun == None:
+			distance_to_sun = 0 * units.m
+		super().__init__(planet_group, mass = mass, position = create_array(values = (distance_to_sun, 0 * units.m))) #no need to pass in self for super()
+		self.scale = DEFAULTSCALE
+		self.displayRadius = displayRadius
+		self.actualRadius = actualRadius.to(units.m)
+		self.color:RGB = color
+		self.distance_to_sun =  distance_to_sun #initial/average distance to the sun
 
-		"""
-		def increaseRadius(self):
-			planetR = self.r * 1.1
-			if planetR < HEIGHT/4: #this HEIGHT/4 was arbitrarily chosen.
-				self.r = planetR
-				self.radiusToScale = False
+"""	def calcForceGravity(self, otherCelestialBody):
+		d_x = otherCelestialBody.x - self.x #distance between two bodies in m; negative distances will be squared
+		d_y = otherCelestialBody.y -self.y
+		d = math.sqrt(d_x**2 + d_y**2)
+		if otherCelestialBody.d == 0: #if otherCelestialBody is the sun
+			self.d = d
 
-		def decreaseRadius(self):
-			planetR = self.r / 1.1
-			if planetR >= 1:
-				self.r = planetR
-				self.radiusToScale = False"""
+		f = constants.G * self.mass* otherCelestialBody.mass/ d**2
+		theta = math.atan2(d_y, d_x)
+		f_x = f * math.cos(theta)
+		f_y = f * math.sin(theta)
+		return f_x, f_y"""
 
-	"""	def calcForceGravity(self, otherCelestialBody):
-			d_x = otherCelestialBody.x - self.x #distance between two bodies in m; negative distances will be squared
-			d_y = otherCelestialBody.y -self.y
-			d = math.sqrt(d_x**2 + d_y**2)
-			if otherCelestialBody.d == 0: #if otherCelestialBody is the sun
-				self.d = d
-
-			f = constants.G * self.mass* otherCelestialBody.mass/ d**2
-			theta = math.atan2(d_y, d_x)
-			f_x = f * math.cos(theta)
-			f_y = f * math.sin(theta)
-			return f_x, f_y"""
-
-
+def main():
 	run = True
 	clock = pygame.time.Clock() #otherwise, the game runs at the speed of the processor
 	screenPlanets = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -121,9 +158,8 @@ def planetSim():
 	neptune = CelestialBody(planet_group, 13, BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
 
 	while run:
-		clock.tick(60)	
-		cursorX = pygame.mouse.get_pos()[0]
-		cursorY = pygame.mouse.get_pos()[1]
+		cursor = pygame.mouse.get_pos()
+		clock.tick(60)
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				run = False
@@ -160,7 +196,7 @@ def planetSim():
 		
 		elif userInput[pygame.K_DOWN]:
 			planet_group.offset.y -= PANNING_VELOCITY
-			
+		
 		"""	if userInput[pygame.K_r]:
 				planet.increaseRadius()
 			
@@ -168,7 +204,7 @@ def planetSim():
 				planet.decreaseRadius()"""
 		
 		screenPlanets.fill(BACKGROUND_COLOR)
-		planet_group.draw(screenPlanets)
+		planet_group.draw(screenPlanets, (0,100))#cursor)
 		auPerPixel = round(((1*units.au).to(units.m)/planet_group.scale).value, 2) #How many aus a pixel represents
 		scaleTxt = font.render("Scale: 1 pixel =  {:e}m".format(auPerPixel), True, (255,255,255))
 		screenPlanets.blit(scaleTxt, (10, HEIGHT - 30)) #prints the scale on the pygame screen
@@ -182,4 +218,5 @@ def planetSim():
 
 	pygame.quit()
 
-planetSim()
+if __name__ == '__main__':
+	main()
