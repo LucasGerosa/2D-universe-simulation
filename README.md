@@ -5,4 +5,5 @@ Also, this simulation shows how the solar system and living beings of a 2D unive
 Instructions:
 Arrow keys: camera panning.
 Plus and minus keys: zooming.
-Z: toggles radius to scale
+Z: toggles radius to scale.
+C: centralizes the screen.
