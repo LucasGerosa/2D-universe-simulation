@@ -19,7 +19,6 @@ PANNING_VELOCITY = 5
 BACKGROUND_COLOR = BLACK
 ZOOM = 1.1 #the increment of the zoom
 TIMESTEP =  3600*24 #the game will be sped up by this number (1 day per second)
-CAMERA_BORDERS = {'left': 200, 'right': 200, 'top': 100, 'bottom': 100}
 
 
 pygame.init()
@@ -30,35 +29,39 @@ font = pygame.font.Font(None, 32)
 RGB = typing.Tuple[int, int, int]
 
 
-WIDTH, HEIGHT = 1250, 500
+WIDTH, HEIGHT = 1250, 600
 CENTER = (WIDTH/2, HEIGHT/2)
-def create_array(u = None, values = (0,0)):
+SCREEN_BORDERS = {'left': WIDTH//7, 'right': WIDTH//7, 'top': HEIGHT//7, 'bottom': HEIGHT//7}
+
+def create_array(u = None, values = (0,0)): #returns a numpy array from coordinates and a unit. The unit can be specified as a parameter or in the coordinates.
+	
 	if isinstance(values[0], units.quantity.Quantity):
 		l = [values[0], values[1]]
 	else:
 		if u == None:
-			raise TypeError("Unit needs to be specified if the values don't have it.")
-		l = [values[0] * u, values[1] * u]
+			raise TypeError(f"Unit needs to be specified if the values don't have units; got {values} instead.")
+		else:
+			l = [values[0] * u, values[1] * u]
 
 	return np.array(l, units.quantity.Quantity)
 
 class Planet_group(pygame.sprite.Group):
-	
-	def __init__(self):
+
+	def __init__(self) -> None:
 		super().__init__()
-		self.offset = pygame.math.Vector2() #for the camera panning; no arguments means (0,0) coordinates
+		self.offset:pygame.math.Vector2 = pygame.math.Vector2() #for the camera panning; no arguments means (0,0) coordinates
 		self.scale = DEFAULTSCALE.copy()
-		self.radiusToScale:bool = False #type:ignore
+		self.radiusToScale:bool = False
 	
-	auToPixels = lambda self, actualDimension: int((actualDimension * self.scale).value)
+	auToPixels = lambda self, actualDimension: round((actualDimension * self.scale).value)
 	#takes the actual position of celestial body and converts it to pixels
 
-	def centralize(self):
+	def centralize(self) -> None:
 		"""Resets the position of each planet in the group and zoom_scale""" #this is a docstring
 		self.scale = DEFAULTSCALE.copy()
 		self.offset *= 0
 
-	def draw(self, surface, cursor_pos = (0, 0)): #overrides Group's draw method
+	def draw(self, surface, cursor_pos = (0, 0)): #-> None: #Overrides Group's draw method. This method violates Liskov substitution principle, and has a couple of other design problems that mypy points out. Also, the cursor_pos is currently unused because zooming based on cursor position still needs to be implemented.
 		for planet in self.sprites():
 			if self.radiusToScale:
 				display_radius = self.auToPixels(planet.actualRadius)
@@ -69,7 +72,7 @@ class Planet_group(pygame.sprite.Group):
 
 			planet_rect = pygame.draw.circle(surface, planet.color, planet_pos, display_radius)
 	
-	def toggleRadius(self): #toggle the radii to scale or to display
+	def toggleRadius(self) -> None: #toggle the radii to scale or to display
 		self.radiusToScale = not self.radiusToScale
 	
 	"""
@@ -121,7 +124,7 @@ class CelestialBody(Body):
 		if distance_to_sun == None:
 			distance_to_sun = 0 * units.m
 		super().__init__(planet_group, mass = mass, position = create_array(values = (distance_to_sun, 0 * units.m))) #no need to pass in self for super()
-		self.scale = DEFAULTSCALE
+
 		self.displayRadius = displayRadius
 		self.actualRadius = actualRadius.to(units.m)
 		self.color:RGB = color
@@ -140,11 +143,40 @@ class CelestialBody(Body):
 		f_y = f * math.sin(theta)
 		return f_x, f_y"""
 
+
+def pan_with_cursor(cursor_pos) -> pygame.Vector2: #enables camera panning with cursor near the edges of the screen
+	cursor_x = cursor_pos[0]
+	cursor_y = cursor_pos[1]
+	left_border = SCREEN_BORDERS["left"]
+	right_border = SCREEN_BORDERS["right"]
+	top_border = SCREEN_BORDERS["top"]
+	bottom_border = SCREEN_BORDERS["bottom"]
+	BASE_VELOCITY = 1
+	k = 1/50 #some constant to decrease the velocity
+	offset:pygame.Vector2 = pygame.Vector2()
+
+	if cursor_x <= left_border:
+		offset.x = PANNING_VELOCITY * (left_border - cursor_x) * k + BASE_VELOCITY
+
+	elif cursor_x >= WIDTH - right_border:
+		offset.x = -PANNING_VELOCITY * (cursor_x - WIDTH + right_border) * k - BASE_VELOCITY
+
+	if cursor_y <= top_border:
+		offset.y = PANNING_VELOCITY * (top_border - cursor_y) * k + BASE_VELOCITY
+
+	elif cursor_y >= HEIGHT - bottom_border:
+		offset.y = -PANNING_VELOCITY * (cursor_y - HEIGHT + bottom_border) * k - BASE_VELOCITY
+	
+	return offset
+
 def main():
+
+
 	run = True
 	clock = pygame.time.Clock() #otherwise, the game runs at the speed of the processor
 	screenPlanets = pygame.display.set_mode((WIDTH, HEIGHT))
 	pygame.display.set_caption("Planet simulation")
+	
 
 	planet_group = Planet_group()
 	sun = CelestialBody(planet_group, 30, YELLOW, constants.M_sun, constants.R_sun)
@@ -158,7 +190,7 @@ def main():
 	neptune = CelestialBody(planet_group, 13, BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
 
 	while run:
-		cursor = pygame.mouse.get_pos()
+		cursor_pos = pygame.mouse.get_pos()
 		clock.tick(60)
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
@@ -175,7 +207,9 @@ def main():
 			if event.type == pygame.MOUSEWHEEL: #pygame.MOUSEBUTTONDOWN
 				#print(event.y)
 				if event.y > 0:
-					planet_group.scale *= event.y
+					planet_group.scale *= event.y * ZOOM
+				else:
+					planet_group.scale /= -event.y * ZOOM
 					
 		userInput = pygame.key.get_pressed()
 		
@@ -202,9 +236,10 @@ def main():
 			
 			elif userInput[pygame.K_e]:
 				planet.decreaseRadius()"""
+		planet_group.offset += pan_with_cursor(cursor_pos)
 		
 		screenPlanets.fill(BACKGROUND_COLOR)
-		planet_group.draw(screenPlanets, (0,100))#cursor)
+		planet_group.draw(screenPlanets, (0,100))#cursor_pos)
 		auPerPixel = round(((1*units.au).to(units.m)/planet_group.scale).value, 2) #How many aus a pixel represents
 		scaleTxt = font.render("Scale: 1 pixel =  {:e}m".format(auPerPixel), True, (255,255,255))
 		screenPlanets.blit(scaleTxt, (10, HEIGHT - 30)) #prints the scale on the pygame screen
