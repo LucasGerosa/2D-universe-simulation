@@ -7,17 +7,14 @@ from astropy import constants, units # type: ignore
 import copy
 import typing
 import sys
+import colors
 
 
-YELLOW = (255, 255, 0)
-BLUE = (0, 0, 255)
-RED = (255, 0, 0)
-BLACK = (0, 0, 0)
 DEFAULTSCALE = 39/constants.au #pixels per AU
 COORDINATE = typing.Tuple[int|float, int|float]
 m_per_s = units.m / units.s
 PANNING_VELOCITY = 5
-BACKGROUND_COLOR = BLACK
+BACKGROUND_COLOR = colors.BLACK
 TIMESTEP =  3600*24 #the game will be sped up by this number (1 day per second)
 FPS = 60
 #L_sun solar luminosity
@@ -159,7 +156,7 @@ def main():
 	class Game_state:
 
 		def __init__(self) -> None:
-			self.state = 'main_menu'
+			self.state = self.main_menu #keeps track of the game state
 			self.mouse_panning = True
 		
 		def main_menu(self) -> None:
@@ -168,16 +165,27 @@ def main():
 					pygame.quit()
 					sys.exit()
 				if event.type == pygame.MOUSEBUTTONDOWN:
-					self.state = 'main_game' #temporary
+					self.state = self.main_game #temporary
+					return
 			
 			userInput = pygame.key.get_pressed()
 		
-		def pause_menu(self):
-			pass
+		def pause_menu(self) -> None:
+			for event in pygame.event.get():
+				if event.type == pygame.QUIT:
+					pygame.quit()
+					sys.exit()
+				if event.type == pygame.KEYDOWN:
+			
+					""" if event.key == pygame.K_j:
+						centralizeOnPlanet(earth, planets) """
+					if event.key == pygame.K_ESCAPE:
+						self.state =  self.main_game
+						return
 
 		def main_game(self) -> None:
 
-			def print_scale() -> None: #Red: should this function be nested?
+			def print_scale() -> None: #colors.RED: should this function be nested?
 				auPerPixel = round(((1*units.au).to(units.m)/planet_group.scale).value, 2) #How many aus a pixel represents
 				scaleTxt = font.render("Scale: 1 pixel =  {:e}m".format(auPerPixel), True, (255,255,255))
 				screen.blit(scaleTxt, (10, HEIGHT - 30)) #prints the scale on the pygame screen
@@ -197,7 +205,7 @@ def main():
 					""" if event.key == pygame.K_j:
 						centralizeOnPlanet(earth, planets) """
 					if event.key == pygame.K_ESCAPE:
-						self.pause_menu()
+						self.state = self.pause_menu
 						return
 					if event.key == pygame.K_z:
 						planet_group.toggleRadius()
@@ -244,12 +252,6 @@ def main():
 			print_scale()
 
 
-		def state_manager(self) -> None:
-			if self.state == 'main_menu':
-				self.main_menu()
-			elif self.state == 'main_game':
-				self.main_game()
-
 	pygame.init()
 	font = pygame.font.Font(None, 32)
 	clock = pygame.time.Clock() #otherwise, the game runs at the speed of the processor
@@ -259,15 +261,15 @@ def main():
 	
 
 	planet_group = Planet_group()
-	sun = CelestialBody(planet_group, 30, YELLOW, constants.M_sun, constants.R_sun)
+	sun = CelestialBody(planet_group, 30, colors.YELLOW, constants.M_sun, constants.R_sun)
 	mercury = CelestialBody(planet_group, 1, (100,100,100), 0.33e4*units.kg, 4879/2*units.km, 57.9e9*units.m)
-	venus = CelestialBody(planet_group, 3, YELLOW, 4.87e4*units.kg, 12104/2*units.km, 108.2e9*units.m,)
-	earth = CelestialBody(planet_group, 3, BLUE, constants.M_earth, constants.R_earth, (1*units.au).to(units.m))
-	mars = CelestialBody(planet_group, 2, RED, 0.642e24*units.kg,6792/2*units.km, 228e9*units.m)
+	venus = CelestialBody(planet_group, 3, colors.YELLOW, 4.87e4*units.kg, 12104/2*units.km, 108.2e9*units.m,)
+	earth = CelestialBody(planet_group, 3, colors.BLUE, constants.M_earth, constants.R_earth, (1*units.au).to(units.m))
+	mars = CelestialBody(planet_group, 2, colors.RED, 0.642e24*units.kg,6792/2*units.km, 228e9*units.m)
 	jupiter = CelestialBody(planet_group, 35, (120,40, 0), constants.M_jup, constants.R_jup, 778.5e9*units.m)
 	saturn = CelestialBody(planet_group, 30, (255,255,102), 568e24*units.kg, 120536/2*units.km, 1432e9*units.m)
 	uranus = CelestialBody(planet_group, 14, (0, 120, 125), 86.8e24*units.kg, 51118/2*units.km, 2867e9*units.m)
-	neptune = CelestialBody(planet_group, 13, BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
+	neptune = CelestialBody(planet_group, 13, colors.BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
 
 	def pan_with_cursor(cursor_pos) -> pygame.Vector2: #enables camera panning with cursor near the edges of the screen
 		cursor_x = cursor_pos[0]
@@ -297,7 +299,7 @@ def main():
 	while True:
 		screen.fill(BACKGROUND_COLOR)
 		cursor_pos = pygame.mouse.get_pos()
-		game_state.state_manager()
+		game_state.state()
 		pygame.display.flip()
 		clock.tick(FPS)
 
