@@ -157,13 +157,47 @@ def main():
 
 		def __init__(self) -> None:
 			self.state = self.main_menu #keeps track of the game state
+			self.states = [self.main_menu]
 			self.mouse_panning = True
 		
+		@staticmethod
+		def pan_with_cursor(cursor_pos) -> pygame.Vector2: #enables camera panning with cursor near the edges of the screen
+			cursor_x = cursor_pos[0]
+			cursor_y = cursor_pos[1]
+			left_border = SCREEN_BORDERS["left"]
+			right_border = SCREEN_BORDERS["right"]
+			top_border = SCREEN_BORDERS["top"]
+			bottom_border = SCREEN_BORDERS["bottom"]
+			BASE_VELOCITY = 1
+			k = 1/50 #some constant to decrease the velocity
+			offset:pygame.Vector2 = pygame.Vector2()
+
+			if cursor_x <= left_border:
+				offset.x = PANNING_VELOCITY * (left_border - cursor_x) * k + BASE_VELOCITY
+
+			elif cursor_x >= WIDTH - right_border:
+				offset.x = -PANNING_VELOCITY * (cursor_x - WIDTH + right_border) * k - BASE_VELOCITY
+
+			if cursor_y <= top_border:
+				offset.y = PANNING_VELOCITY * (top_border - cursor_y) * k + BASE_VELOCITY
+
+			elif cursor_y >= HEIGHT - bottom_border:
+				offset.y = -PANNING_VELOCITY * (cursor_y - HEIGHT + bottom_border) * k - BASE_VELOCITY
+			
+			return offset
+		
+		@staticmethod
+		def quit(event):
+			if event.type == pygame.QUIT:
+				nonlocal run 
+				run = False
+				return
+		
 		def main_menu(self) -> None:
+			
 			for event in pygame.event.get():
-				if event.type == pygame.QUIT:
-					pygame.quit()
-					sys.exit()
+				self.quit(event)
+				
 				if event.type == pygame.MOUSEBUTTONDOWN:
 					self.state = self.main_game #temporary
 					return
@@ -172,9 +206,8 @@ def main():
 		
 		def pause_menu(self) -> None:
 			for event in pygame.event.get():
-				if event.type == pygame.QUIT:
-					pygame.quit()
-					sys.exit()
+				self.quit(event)
+
 				if event.type == pygame.KEYDOWN:
 			
 					""" if event.key == pygame.K_j:
@@ -182,6 +215,10 @@ def main():
 					if event.key == pygame.K_ESCAPE:
 						self.state =  self.main_game
 						return
+
+		def settings(self) -> None:
+			for event in pygame.event.get():
+				self.quit(event)
 
 		def main_game(self) -> None:
 
@@ -197,9 +234,7 @@ def main():
 				screen.blit(font.render(radiiToScaleStr, True, (255,255,255)), (10, HEIGHT - 60))
 			
 			for event in pygame.event.get():
-				if event.type == pygame.QUIT:
-					pygame.quit()
-					sys.exit()
+				self.quit(event)
 				if event.type == pygame.KEYDOWN:
 			
 					""" if event.key == pygame.K_j:
@@ -295,8 +330,8 @@ def main():
 			offset.y = -PANNING_VELOCITY * (cursor_y - HEIGHT + bottom_border) * k - BASE_VELOCITY
 		
 		return offset
-
-	while True:
+	run = True
+	while run:
 		screen.fill(BACKGROUND_COLOR)
 		cursor_pos = pygame.mouse.get_pos()
 		game_state.state()
