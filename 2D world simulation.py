@@ -7,8 +7,10 @@ from astropy import constants, units # type: ignore
 import copy
 import typing
 import sys
-import colors
+import colors #type: ignore
 
+
+'''These constants should probably be in a different file, but I don't know how to properly organlize them:'''
 
 DEFAULTSCALE = 39/constants.au #pixels per AU
 COORDINATE = typing.Tuple[int|float, int|float]
@@ -27,6 +29,8 @@ WIDTH, HEIGHT = 1250, 600
 CENTER = (WIDTH/2, HEIGHT/2)
 SCREEN_BORDERS = {'left': WIDTH//7, 'right': WIDTH//7, 'top': HEIGHT//7, 'bottom': HEIGHT//7}
 
+'''The folllowing functions and classes might have some design problems, but they work fine and are decently organized:'''
+
 def create_array(u = None, values = (0,0)): #returns a numpy array from coordinates and a unit. The unit can be specified as a parameter or in the coordinates.
 	
 	if isinstance(values[0], units.quantity.Quantity):
@@ -40,6 +44,7 @@ def create_array(u = None, values = (0,0)): #returns a numpy array from coordina
 	return np.array(l, units.quantity.Quantity)
 
 class Planet_group(pygame.sprite.Group):
+	'''Container class for the planets.'''
 	ZOOM = 1.1 #the increment of the zoom
 
 	def __init__(self) -> None:
@@ -96,10 +101,11 @@ class Planet_group(pygame.sprite.Group):
 			self.radiusToScale = False"""
 
 class Body(pygame.sprite.Sprite):
-	"""Class for any piece of matte"""
+	"""Represents any piece of matter in the simulation."""
 	
 	def __init__(self, *groups, mass = None, position = None, velocity = None): #type: ignore
 		super().__init__(*groups)
+		'''This method in this branch is very messy, but it's a lot better in the "button" branch, so don't worry too much about it.'''
 
 		#velocity should be a vector
 		if velocity is None:
@@ -151,10 +157,22 @@ class CelestialBody(Body):
 		return f_x, f_y"""
 
 
+'''Here's where the mess begins. This might need a complete overhall.
+
+E.g. I don't know if main() should just be a class. I tried to improve this mess a bit in the button branch, with questionable success:'''
 
 def main():
-	class Game_state:
 
+
+	class Game_state:
+		'''A collection of functions that represent the different game states, except for the static methods, which support the other methods. 
+		
+		It keeps track of the gamestate by having a list of functions (the gamestate methods such as main_menu). Then, in every iteration of the game loop, the last element of this list is called. To illustrate why this is useful, consider the settings menu. The settings can be called from the main menu or the pause menu, but when you click to go back, it should send you back to the correct menu that you were previously. For that, the "back" button would remove (or pop) the last element of that list (the settings), leading you back to the previous menu. 
+		
+		This is an elegant solution that I came up with myself because strings representing game states don't seem very good design.
+
+		The problem, however, begins with the fact that each game state method gets called many times per second, which is a problem when I start defining many new functions and creating different objects inside these methods. For example, the planets currently get created when the simulation starts in order to get around this issue, but it's not very organized and I probably can't do the same with the button objects. Ideally, when the game state methods get called for the first time, they create all the objects for the buttons and what they will need, meaning these game state methods might be better as classes, but I have few ideas on how to go about it.
+		'''
 		def __init__(self) -> None:
 			self.state = self.main_menu #keeps track of the game state
 			self.states = [self.main_menu]
@@ -330,6 +348,8 @@ def main():
 			offset.y = -PANNING_VELOCITY * (cursor_y - HEIGHT + bottom_border) * k - BASE_VELOCITY
 		
 		return offset
+	
+	'''Main game loop:'''
 	run = True
 	while run:
 		screen.fill(BACKGROUND_COLOR)
