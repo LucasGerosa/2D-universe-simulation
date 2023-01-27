@@ -42,8 +42,8 @@ def create_array(u = None, values = (0,0)): #returns a numpy array from coordina
 class Planet_group(pygame.sprite.Group):
 	ZOOM = 1.1 #the increment of the zoom
 
-	def __init__(self) -> None:
-		super().__init__()
+	def __init__(self, *planets) -> None:
+		super().__init__(*planets)
 		self.offset:pygame.math.Vector2 = pygame.math.Vector2(0, HEIGHT/2) #for the camera panning; no arguments means (0,0) coordinates
 		self.scale = DEFAULTSCALE.copy()
 		self.radiusToScale:bool = False
@@ -68,14 +68,14 @@ class Planet_group(pygame.sprite.Group):
 		#self.offset += pygame.Vector2(cursor_pos[0], cursor_pos[1] - HEIGHT/2) * (1 -zoom)
 		self.scale /= zoom
 
-	def draw(self, surface): #Overrides Group's draw method. This method has a couple of design problems that mypy points out.
+	def custom_draw(self, surface): #Overrides Group's draw method. This method has a couple of design problems that mypy points out.
 		for planet in self.sprites():
 			if self.radiusToScale:
 				display_radius = self.auToPixels(planet.actualRadius)
 			else:
 				display_radius = planet.displayRadius
 
-			planet_pos = pygame.Vector2(self.auToPixels(planet.position[0]), self.auToPixels(planet.position[1])) + self.offset #- center
+			planet_pos = pygame.Vector2(self.auToPixels(planet.position[0]), self.auToPixels(planet.position[1])) + self.offset
 
 			planet_rect = pygame.draw.circle(surface, planet.color, planet_pos, display_radius)
 	
@@ -101,29 +101,24 @@ class Body(pygame.sprite.Sprite):
 	def __init__(self, *groups, mass = None, position = None, velocity = None): #type: ignore
 		super().__init__(*groups)
 
-		#velocity should be a vector
-		if velocity is None:
-			self.velocity = create_array(m_per_s, (0, 0))
-		
-		elif isinstance(velocity, np.ndarray):
-			self.velocity  = velocity
-
-		else:
-			raise TypeError(f"Velocity needs to be a numpy array with units, got {velocity} instead")
-		
-		if position is None:
-			self.position = create_array(units.m, (0, 0))
-		
-		elif isinstance(position, np.ndarray):
-			self.position  = position
-
-		else:
-			raise TypeError(f"Position needs to be a numpy array with units, got {position} instead.")
+		self.position = self.check_units(position, units.m)
+		self.velocity = self.check_units(velocity, m_per_s)
 
 		if mass == None:
 			self.mass = 0 * units.kg
 		else:
 			self.mass = mass
+	
+	@staticmethod
+	def check_units(vector, unit) -> np.ndarray:
+		if vector is None:
+			return create_array(unit, (0, 0))
+		
+		elif isinstance(vector, np.ndarray):
+			return vector
+
+		else:
+			raise TypeError(f"Argument needs to be a numpy array with units, got {vector} instead.")
 
 class CelestialBody(Body):
 
@@ -150,14 +145,54 @@ class CelestialBody(Body):
 		f_y = f * math.sin(theta)
 		return f_x, f_y"""
 
-
-
 def main():
-	class Game_state:
+		
+	class Button(pygame.sprite.Sprite):
+
+		button_size = (260, 240)
+
+		def __init__(self, txt:str, , pos:COORDINATE = (0, 0), *groups:pygame.sprite.Group) -> None:
+			self.txt = txt
+			self.pos = pos
+			self.color = 'light gray'
+			self.path = path #which function the button should call when pressed
+			super().__init__(*groups)
+		
+		def __check_hovering(self, cursor_pos) -> bool:
+			if self.rect.collidepoint(cursor_pos): #type: ignore
+				return True
+			
+			else:
+				return False
+			
+		@staticmethod
+		def __check_clicked() -> bool:
+			if pygame.mouse.get_pressed()[0]:
+				return True
+			else:
+				return False
+		
+		
+		def update(self, cursor_pos, displacement:pygame.Vector2 | None = None) -> None:
+			thickness = 1
+			roundedness = 1
+			self.rect = pygame.draw.rect(pygame.display.get_surface(), self.color, self.pos, thickness, roundedness) #type: ignore
+			
+			if displacement != None:
+				self.rect.center += displacement #type: ignore
+			
+			if self.__check_hovering(cursor_pos):
+				self.color = colors.RED #type: ignore
+				if self.__check_clicked():
+					self.path()
+			
+			
+
+
+	class Game_state: #Red: should this be a class? I don't weant to create objects from this class nor have any inheritance.\
 
 		def __init__(self) -> None:
-			self.state = self.main_menu #keeps track of the game state
-			self.states = [self.main_menu]
+			self.states = [self.main_menu]#keeps track of the game state
 			self.mouse_panning = True
 		
 		@staticmethod
@@ -193,16 +228,23 @@ def main():
 				run = False
 				return
 		
+
 		def main_menu(self) -> None:
+
+			def setup_buttons():
+				distance_between_buttons:int = 40 #type:ignore
+				
+				play_button = Button("Start simulation", self.main_game, self(WIDTH/2, distance_between_buttons) )
+				settings_button = Button("Settings", self.settings, (WIDTH/2, distance_between_buttons + Button.button_size[1]))
+				buttons = pygame.sprite.Group(play_button, settings_button)
 			
+			setup_buttons()
 			for event in pygame.event.get():
 				self.quit(event)
 				
-				if event.type == pygame.MOUSEBUTTONDOWN:
-					self.state = self.main_game #temporary
-					return
+				
 			
-			userInput = pygame.key.get_pressed()
+			keys_pressed = pygame.key.get_pressed()
 		
 		def pause_menu(self) -> None:
 			for event in pygame.event.get():
@@ -213,16 +255,23 @@ def main():
 					""" if event.key == pygame.K_j:
 						centralizeOnPlanet(earth, planets) """
 					if event.key == pygame.K_ESCAPE:
-						self.state =  self.main_game
+						self.states.pop()
 						return
 
 		def settings(self) -> None:
 			for event in pygame.event.get():
 				self.quit(event)
+				if event.type == pygame.KEYDOWN:
+			
+					""" if event.key == pygame.K_j:
+						centralizeOnPlanet(earth, planets) """
+					if event.key == pygame.K_ESCAPE:
+						self.states.pop()
+						return
 
 		def main_game(self) -> None:
 
-			def print_scale() -> None: #colors.RED: should this function be nested?
+			def print_scale() -> None: #RED: should this function be nested?
 				auPerPixel = round(((1*units.au).to(units.m)/planet_group.scale).value, 2) #How many aus a pixel represents
 				scaleTxt = font.render("Scale: 1 pixel =  {:e}m".format(auPerPixel), True, (255,255,255))
 				screen.blit(scaleTxt, (10, HEIGHT - 30)) #prints the scale on the pygame screen
@@ -240,7 +289,7 @@ def main():
 					""" if event.key == pygame.K_j:
 						centralizeOnPlanet(earth, planets) """
 					if event.key == pygame.K_ESCAPE:
-						self.state = self.pause_menu
+						self.states.append(self.pause_menu)
 						return
 					if event.key == pygame.K_z:
 						planet_group.toggleRadius()
@@ -281,11 +330,23 @@ def main():
 				elif userInput[pygame.K_e]:
 					planet.decreaseRadius()"""
 			if self.mouse_panning:
-				planet_group.offset += pan_with_cursor(cursor_pos)
+				planet_group.offset += self.pan_with_cursor(cursor_pos)
 			
-			planet_group.draw(screen)
+			planet_group.custom_draw(screen)
 			print_scale()
 
+	def setup_planets() -> Planet_group:
+		planet_group = Planet_group()
+		sun = CelestialBody(planet_group, 30, colors.YELLOW, constants.M_sun, constants.R_sun)
+		mercury = CelestialBody(planet_group, 1, (100,100,100), 0.33e4*units.kg, 4879/2*units.km, 57.9e9*units.m)
+		venus = CelestialBody(planet_group, 3, colors.YELLOW, 4.87e4*units.kg, 12104/2*units.km, 108.2e9*units.m,)
+		earth = CelestialBody(planet_group, 3, colors.BLUE, constants.M_earth, constants.R_earth, (1*units.au).to(units.m))
+		mars = CelestialBody(planet_group, 2, colors.RED, 0.642e24*units.kg,6792/2*units.km, 228e9*units.m)
+		jupiter = CelestialBody(planet_group, 35, (120,40, 0), constants.M_jup, constants.R_jup, 778.5e9*units.m)
+		saturn = CelestialBody(planet_group, 30, (255,255,102), 568e24*units.kg, 120536/2*units.km, 1432e9*units.m)
+		uranus = CelestialBody(planet_group, 14, (0, 120, 125), 86.8e24*units.kg, 51118/2*units.km, 2867e9*units.m)
+		neptune = CelestialBody(planet_group, 13, colors.BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
+		return planet_group
 
 	pygame.init()
 	font = pygame.font.Font(None, 32)
@@ -293,48 +354,14 @@ def main():
 	screen = pygame.display.set_mode((WIDTH, HEIGHT))
 	pygame.display.set_caption("Planet simulation")
 	game_state = Game_state()
-	
 
-	planet_group = Planet_group()
-	sun = CelestialBody(planet_group, 30, colors.YELLOW, constants.M_sun, constants.R_sun)
-	mercury = CelestialBody(planet_group, 1, (100,100,100), 0.33e4*units.kg, 4879/2*units.km, 57.9e9*units.m)
-	venus = CelestialBody(planet_group, 3, colors.YELLOW, 4.87e4*units.kg, 12104/2*units.km, 108.2e9*units.m,)
-	earth = CelestialBody(planet_group, 3, colors.BLUE, constants.M_earth, constants.R_earth, (1*units.au).to(units.m))
-	mars = CelestialBody(planet_group, 2, colors.RED, 0.642e24*units.kg,6792/2*units.km, 228e9*units.m)
-	jupiter = CelestialBody(planet_group, 35, (120,40, 0), constants.M_jup, constants.R_jup, 778.5e9*units.m)
-	saturn = CelestialBody(planet_group, 30, (255,255,102), 568e24*units.kg, 120536/2*units.km, 1432e9*units.m)
-	uranus = CelestialBody(planet_group, 14, (0, 120, 125), 86.8e24*units.kg, 51118/2*units.km, 2867e9*units.m)
-	neptune = CelestialBody(planet_group, 13, colors.BLUE, 102e24*units.kg, 49528/2*units.km, 4515e9*units.m)
+	planet_group = setup_planets()
 
-	def pan_with_cursor(cursor_pos) -> pygame.Vector2: #enables camera panning with cursor near the edges of the screen
-		cursor_x = cursor_pos[0]
-		cursor_y = cursor_pos[1]
-		left_border = SCREEN_BORDERS["left"]
-		right_border = SCREEN_BORDERS["right"]
-		top_border = SCREEN_BORDERS["top"]
-		bottom_border = SCREEN_BORDERS["bottom"]
-		BASE_VELOCITY = 1
-		k = 1/50 #some constant to decrease the velocity
-		offset:pygame.Vector2 = pygame.Vector2()
-
-		if cursor_x <= left_border:
-			offset.x = PANNING_VELOCITY * (left_border - cursor_x) * k + BASE_VELOCITY
-
-		elif cursor_x >= WIDTH - right_border:
-			offset.x = -PANNING_VELOCITY * (cursor_x - WIDTH + right_border) * k - BASE_VELOCITY
-
-		if cursor_y <= top_border:
-			offset.y = PANNING_VELOCITY * (top_border - cursor_y) * k + BASE_VELOCITY
-
-		elif cursor_y >= HEIGHT - bottom_border:
-			offset.y = -PANNING_VELOCITY * (cursor_y - HEIGHT + bottom_border) * k - BASE_VELOCITY
-		
-		return offset
 	run = True
 	while run:
 		screen.fill(BACKGROUND_COLOR)
 		cursor_pos = pygame.mouse.get_pos()
-		game_state.state()
+		game_state.states[-1]()
 		pygame.display.flip()
 		clock.tick(FPS)
 
